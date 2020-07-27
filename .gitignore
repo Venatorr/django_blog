@@ -109,6 +109,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+yatube_venv/
 
 # Spyder project settings
 .spyderproject
@@ -127,3 +128,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Backups
+_db.sqlite3
+
+.idea/
