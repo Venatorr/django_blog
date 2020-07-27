@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Профиль пользователя @{{ profile_user.username }}{% endblock %}
+{% block content %}
+{% load user_filters %}
+
+<main role="main" class="container">
+    <div class="row">
+        {% include "includes/profile_block.html" with count=posts_count %}
+
+        <div class="col-md-9">
+            {% include "includes/post_block.html" with post=post %}
+            {% include "comments.html" %}
+        </div>
+    </div>
+</main>
+{% endblock %}
