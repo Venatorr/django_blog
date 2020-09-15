@@ -10,10 +10,10 @@ handler404 = 'posts.views.page_not_found' # noqa
 handler500 = 'posts.views.server_error' # noqa
 
 urlpatterns = [
+    path('admin/', admin.site.urls),
     path('', include('posts.urls')),
     path('auth/', include('users.urls')),
     path('auth/', include('django.contrib.auth.urls')),
-    path('admin/', admin.site.urls),
     path('about-author/', views.flatpage, {'url': '/about-author/'}),
     path('about-spec/', views.flatpage, {'url': '/about-spec/'}),
 ]

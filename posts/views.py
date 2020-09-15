@@ -5,6 +5,7 @@ from .forms import PostForm, CommentForm
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.cache import cache_page
 
+
 POST_ON_PAGE = 10
 
 
@@ -46,8 +47,8 @@ def new_post(request):
 
 @login_required
 def post_edit(request, username, post_id):
-    user = get_object_or_404(User, username=username)
-    post = get_object_or_404(Post, id=post_id, author=user)
+    post = get_object_or_404(Post, id=post_id, author__username=username)
+    user = post.author
     if user != request.user:
         return redirect('post', username=username, post_id=post_id)
     form = PostForm(request.POST or None,
@@ -69,6 +70,14 @@ def check_following(user, author):
     return user.follower.filter(author=author).exists()
 
 
+def get_follower_count(user):
+    return user.follower.count()
+
+
+def get_following_count(user):
+    return user.following.count()
+
+
 def profile(request, username):
     user = get_object_or_404(User, username=username)
     post_list = user.posts.all()
@@ -79,13 +88,15 @@ def profile(request, username):
                'following': check_following(request.user, user),
                'page': page,
                'paginator': paginator,
-               'is_post': False}
+               'is_post': False,
+               'follower_count': get_follower_count(user),
+               'following_count': get_following_count(user)}
     return render(request, 'profile.html', context)
 
 
 def post_view(request, username, post_id):
-    user = get_object_or_404(User, username=username)
-    post = get_object_or_404(Post, id=post_id, author=user)
+    post = get_object_or_404(Post, id=post_id, author__username=username)
+    user = post.author
     items = post.comments.all()
     comment_form = CommentForm()
     posts_count = user.posts.count()
@@ -95,7 +106,9 @@ def post_view(request, username, post_id):
                'post': post,
                'posts_count': posts_count,
                'items': items,
-               'is_post': True}
+               'is_post': True,
+               'follower_count': get_follower_count(user),
+               'following_count': get_following_count(user)}
     return render(request, 'post.html', context)
 
 
@@ -115,7 +128,7 @@ def server_error(request):
 @login_required
 def add_comment(request, username, post_id):
     '''
-    add_comment вызывается только методом POST, поэтому обработка только POST
+    вызывается только методом POST, поэтому обработка только POST
     '''
     form = CommentForm(request.POST)
     if form.is_valid():

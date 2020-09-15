@@ -72,5 +72,6 @@ class Follow(models.Model):
                                verbose_name='Авторы на которых подписан')
 
     class Meta:
+        unique_together = ['user', 'author']
         verbose_name = 'Подписка'
         verbose_name_plural = 'Подписки'

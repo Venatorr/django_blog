@@ -13,9 +13,6 @@ class TestPosts(TestCase):
         self.user = User.objects.create_user(username='test_user')
         self.auth_client.force_login(self.user)
         self.group = Group.objects.create(title='test group', slug='test_group')
-        self.post = Post.objects.create(text='Some text',
-                                        author=self.user,
-                                        group=self.group)
         self.following_user = User.objects.create_user(username='following_user')
 
     def test_profile_available(self):
@@ -25,8 +22,13 @@ class TestPosts(TestCase):
         self.assertEqual(self.response.status_code, 200, msg=message)
 
     def test_new_post_auth(self):
+        text = 'Test text'
         self.response = self.auth_client.post(
-            reverse('new_post'), {'text': 'Test text'}, follow=True)
+            reverse('new_post'),
+            {'text': text,
+             'group': self.group.id,
+             'author': self.user.id},
+            follow=True)
         message = ('Added post from authorized user '
                    'should redirect to index')
         url = ''
@@ -36,7 +38,14 @@ class TestPosts(TestCase):
         self.assertEqual('/', url, msg=message)
         message = ('Added post from authorized user '
                    'should create new post')
-        self.assertEqual(Post.objects.count(), 2, msg=message)
+        self.assertEqual(Post.objects.count(), 1, msg=message)
+        post, *_ = Post.objects.all()
+        message = 'Added post has wrong text'
+        self.assertEqual(post.text, text, msg=message)
+        message = 'Added post has wrong author'
+        self.assertEqual(post.author, self.user, msg=message)
+        message = 'Added post has wrong group'
+        self.assertEqual(post.group, self.group, msg=message)
 
     def test_new_post_unauth(self):
         self.response = self.unauth_client.post(
@@ -50,51 +59,70 @@ class TestPosts(TestCase):
         self.assertTrue('login' in url, msg=message)
         message = ('Added post from unauthorized user '
                    'should not create new post')
-        self.assertEqual(Post.objects.count(), 1, msg=message)
+        self.assertEqual(Post.objects.count(), 0, msg=message)
 
-    def check_post_existence(self, text):
-        post = Post.objects.get(text__contains=text)
-        pages = {'index': (reverse('index'),
-                           'Added post should '
-                           'be showed on main page'),
-                 'profile': (reverse('profile', args=[self.user.username]),
-                             'Added post should '
-                             'be showed on profile page'),
-                 'post': (reverse('post', args=[self.user.username, post.id]),
-                          'Added post should '
-                          'be showed on post page')}
-        cache.clear()
-        for url, message in pages.values():
-            self.response = self.auth_client.get(url)
-            self.assertContains(self.response, text, msg_prefix=message)
+    def check_post_on_page(self, url, post, message):
+        self.response = self.auth_client.get(url)
+        self.assertContains(self.response, post.text, msg_prefix=message)
+        self.assertContains(self.response, post.group.title, msg_prefix=message)
+        self.assertContains(self.response, post.author.username, msg_prefix=message)
 
     def test_new_post_show(self):
         text = 'Test text'
         self.response = self.auth_client.post(
-            reverse('new_post'), {'text': text}, follow=True)
-        self.check_post_existence(text)
+            reverse('new_post'),
+            {'text': text,
+             'group': self.group.id},
+            follow=True)
+        post = Post.objects.get(text__contains=text)
+        pages = {'index': reverse('index'),
+                 'profile': reverse('profile', args=[self.user.username]),
+                 'post': reverse('post', args=[self.user.username, post.id])}
+        cache.clear()
+        message = 'Added post should be showed on page: '
+        for name, url in pages.items():
+            with self.subTest(url=url):
+                self.check_post_on_page(url, post, message + name)
 
     def test_edit_post_show(self):
         text = 'Test text'
         self.response = self.auth_client.post(
-            reverse('new_post'), {'text': text}, follow=True)
+            reverse('new_post'),
+            {'text': text},
+            follow=True)
         post = Post.objects.get(text__contains=text)
         text = 'Modifying text'
         self.response = self.auth_client.post(
             reverse('post_edit', args=[self.user.username, post.id]),
-            {'text': text})
-        self.check_post_existence(text)
+            {'text': text,
+             'group': self.group.id},
+            follow=True)
+        post = Post.objects.get(id=post.id)
+        pages = {'index': reverse('index'),
+                 'profile': reverse('profile', args=[self.user.username]),
+                 'post': reverse('post', args=[self.user.username, post.id])}
+        # MESSAGE_TO_REVIEWER:
+        # изначально делал с override_settings, с ним нормально работало если
+        # кэширование делать в шаблоне html, если же делать через @cache_page
+        # во view, как сейчас, то override_settings не работает
+        # у других студентов такая же проблема - насколько я знаю пока не решена
+        # и причины не ясны) ну и вроде в cache.clear ничего плохого нет. или есть?
+        cache.clear()
+        message = 'Edited post should be showed on page: '
+        for name, url in pages.items():
+            with self.subTest(url=url):
+                self.check_post_on_page(url, post, message + name)
 
     def test_404(self):
         self.response = self.auth_client.get('/some_wrong_url/')
         message = 'Server should return code 404'
         self.assertEqual(self.response.status_code, 404, msg=message)
 
-    def add_image_to_post(self):
+    def add_image_to_post(self, post):
         with tempfile.TemporaryDirectory() as temp_directory:
             with override_settings(MEDIA_ROOT=temp_directory):
                 with open('media/tests/django.png', 'rb') as img:
-                    url = reverse('post_edit', args=[self.user.username, self.post.id])
+                    url = reverse('post_edit', args=[self.user.username, post.id])
                     self.response = self.auth_client.post(
                         url,
                         {'text': 'Post with image',
@@ -103,10 +131,13 @@ class TestPosts(TestCase):
                         follow=True)
 
     def test_image_in_post(self):
-        self.add_image_to_post()
+        post = Post.objects.create(text='Some text',
+                                   author=self.user,
+                                   group=self.group)
+        self.add_image_to_post(post)
         message = 'Post page should have image from post'
         self.assertContains(self.response,
-                            f'id="image_{self.post.id}"',
+                            f'id="image_{post.id}"',
                             msg_prefix=message)
 
     def test_image_on_pages(self):
@@ -119,37 +150,49 @@ class TestPosts(TestCase):
                  'group': (reverse('group', args=[self.group.slug]),
                            'Group page should '
                            'have image from post')}
-        self.add_image_to_post()
+        post = Post.objects.create(text='Some text',
+                                   author=self.user,
+                                   group=self.group)
+        self.add_image_to_post(post)
         cache.clear()
         for url, message in pages.values():
             self.response = self.auth_client.get(url)
             self.assertContains(self.response,
-                                f'id="image_{self.post.id}"',
+                                f'id="image_{post.id}"',
                                 msg_prefix=message)
 
     def test_image_format(self):
         with tempfile.TemporaryDirectory() as temp_directory:
             with override_settings(MEDIA_ROOT=temp_directory):
                 with open('media/tests/image.exe', 'rb') as img:
-                    url = reverse('post_edit', args=[self.user.username,
-                                                     self.post.id])
+                    url = reverse('new_post')
                     self.response = self.auth_client.post(
                         url,
                         {'author': self.user,
                          'text': 'post with image',
-                         'image': img})
+                         'image': img}
+                    )
                     message = 'Page should contain error message'
-                    self.assertContains(self.response,
-                                        'File extension &#39;exe&#39; is not allowed',
-                                        msg_prefix=message)
+                    self.assertFormError(
+                        self.response,
+                        form='form',
+                        field='image',
+                        errors=("File extension 'exe' is not allowed. Allowed extensions are: "
+                                "'bmp, dib, gif, tif, tiff, jfif, jpe, jpg, jpeg, pbm, pgm, ppm, "
+                                "pnm, png, apng, blp, bufr, cur, pcx, dcx, dds, ps, eps, fit, fits, "
+                                "fli, flc, ftc, ftu, gbr, grib, h5, hdf, jp2, j2k, jpc, jpf, jpx, "
+                                "j2c, icns, ico, im, iim, mpg, mpeg, mpo, msp, palm, pcd, pdf, pxr, "
+                                "psd, bw, rgb, rgba, sgi, ras, tga, icb, vda, vst, webp, wmf, "
+                                "emf, xbm, xpm'."),
+                        msg_prefix=message)
 
     def test_cache_index_page(self):
         self.response = self.auth_client.get(reverse('index'))
-        new_post = Post.objects.create(text='Not cached text',
-                                       author=self.user)
+        post = Post.objects.create(text='Not cached text',
+                                   author=self.user)
         self.response = self.auth_client.get(reverse('index'))
         message = 'Index page should be cached'
-        self.assertNotContains(self.response, new_post.text, msg_prefix=message)
+        self.assertNotContains(self.response, post.text, msg_prefix=message)
 
     def add_following(self):
         url = reverse('profile_follow',
@@ -189,7 +232,10 @@ class TestPosts(TestCase):
         self.assertNotContains(self.response, following_post.text, msg_prefix=message)
 
     def test_adding_comment(self):
-        url = reverse('add_comment', args=[self.user.username, self.post.id])
+        post = Post.objects.create(text='Some text',
+                                   author=self.user,
+                                   group=self.group)
+        url = reverse('add_comment', args=[self.user.username, post.id])
         text_comment = 'Some comment from auth user'
         self.response = self.auth_client.post(url,
                                               {'text': text_comment},
@@ -206,7 +252,7 @@ class TestPosts(TestCase):
                    'on post page')
         self.assertNotContains(self.response, text_comment, msg_prefix=message)
 
-        url = reverse('post', args=[self.user.username, self.post.id])
+        url = reverse('post', args=[self.user.username, post.id])
         self.response = self.unauth_client.get(url)
         message = ('Adding comment form should be not showed '
                    'on post page for unauth user')
