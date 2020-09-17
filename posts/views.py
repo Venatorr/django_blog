@@ -9,7 +9,6 @@ from django.views.decorators.cache import cache_page
 POST_ON_PAGE = 10
 
 
-@cache_page(20, key_prefix='index_page')
 def index(request):
     post_list = Post.objects.all()
     paginator = Paginator(post_list, POST_ON_PAGE)
